@@ -1,25 +1,32 @@
 {
-	"serverPort": 8500,
-	"hueAddress": "...{Hue IP address}...",
+	"serverPort": 8000,
+	"hueAddress": "...{Hue IP address}...}",
 	"hueToken": "...{Hue Token}...}",
-	"slackURL": "https://hooks.slack.com/services/{...Slack Token...}",
+	"slackURL": "https://hooks.slack.com/services/{...Slack token}}",
 	"slackFooterIcon": "https://m.media-amazon.com/images/G/01/IMDb/BG_square._CB1509067564_SY230_SX307_AL_.png",
 	"imdbAPI": "https://v2.sg.media-imdb.com/suggests/titles/",
 	"imdbURL": "https://www.imdb.com/title/",
 	"alwaysPostSlack": false,
 	"sendSlackMessage": true,
-	"Cinema room": {
+	"SHIELD cinema": {
 		"hueGroup": 9,
 		"dimDown": 85,
 		"dimUp": 254
 	},
-	"Lounge": {
+	"AFTN": {
 		"hueGroup": 1,
 		"dimDown": 10,
 		"dimUp": 254
 	},
-	"{...User id...}}": {
-		"name": "{...Nice readable name...}"
+	"...{User ID}...": {
+		"name": "...{Pretty english name}..."
 	},
-	"debug": false
+	"debug": true,
+	"plexReencoding": {
+		"enabled": true,
+		"plexIp": "...{Plex IP address}...",
+		"plexPort": "32400",
+		"plexToken": "...{Plex token}...",
+		"debug": true
+	}
 }

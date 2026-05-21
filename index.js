@@ -1,15 +1,16 @@
 const http = require("http");
 const httprequest = require('request');
-const {IncomingForm} = require("formidable");
+const { IncomingForm } = require("formidable");
 const SlackWebhook = require('slack-webhook');
 const fs = require('fs');
+const processPlexMedia = require('./processPlexMedia');
 
-const config = JSON.parse(fs.readFileSync('./HueConfig.json', 'utf8'));
+const config = JSON.parse(fs.readFileSync('/media/sourcing/slack/HueConfig.json', 'utf8'));
 
 const slack = new SlackWebhook(config.slackURL)
 
 const log = function (logText) {
-	
+
 	const today = new Date();
 	const yyyy = today.getFullYear();
 	let mm = today.getMonth() + 1; // Months start at 0!
@@ -26,13 +27,13 @@ const log = function (logText) {
 
 const server = http.createServer((req, res) => {
 	if (req.url !== "/" || req.method !== "POST") {
-		res.writeHead(404, {"Content-Type": "text/plain"});
+		res.writeHead(404, { "Content-Type": "text/plain" });
 		return res.end("404");
 	}
 
 	res.end();
 	let form = new IncomingForm();
-	
+
 	let programmeTitle = {};
 	let programmeSeason = {};
 	let programmeEpisode = {};
@@ -42,14 +43,14 @@ const server = http.createServer((req, res) => {
 	let footerIcon = "";
 	let imdbTitle = "";
 	let userName = "";
-	
-	form.parse(req, (err, {payload}) => {
-		let {event, Player, Account, Metadata} = JSON.parse(payload);
+
+	form.parse(req, (err, { payload }) => {
+		let { event, Player, Account, Metadata } = JSON.parse(payload);
 
 		if (config.debug) {
 			log("---------------------- PLEX Data -----------------------")
 			log(payload);
-		}	
+		}
 
 		if (config[Account.title]) {
 			userName = config[Account.title].name;
@@ -57,21 +58,21 @@ const server = http.createServer((req, res) => {
 			userName = Account.title;
 		}
 
-		for(var plexClient in config) {
+		for (var plexClient in config) {
 			if (Player.title == plexClient) {
-				
+
 				let bri = ["media.stop", "media.pause"].includes(event) ? config[plexClient].dimUp :
-						["media.play", "media.resume"].includes(event) ? config[plexClient].dimDown : null;
+					["media.play", "media.resume"].includes(event) ? config[plexClient].dimDown : null;
 
 				if (bri) {
 					let request = http.request({
 						method: "put", hostname: config.hueAddress, port: 80,
 						path: `/api/${config.hueToken}/groups/${config[plexClient].hueGroup}/action`
 					});
-			
+
 					request.on("error", err => log(err));
-					request.write(JSON.stringify({bri}));
-			
+					request.write(JSON.stringify({ bri }));
+
 					request.end();
 				}
 			}
@@ -79,23 +80,47 @@ const server = http.createServer((req, res) => {
 
 		let playAction = ["media.scrobble"].includes(event) ? 'Watched' : null;
 
+		if (playAction === 'Watched' && config.plexReencoding && config.plexReencoding.enabled) {
+			if (config.debug) {
+				log("** Checking to see if we should re-encode **")
+			}
+			const ratingKey = Metadata.ratingKey || Metadata.ratingKey;
+			if (ratingKey) {
+				const plexConfig = {
+					plexIp: config.plexReencoding.plexIp,
+					plexPort: config.plexReencoding.plexPort,
+					plexToken: config.plexReencoding.plexToken,
+					ratingKey,
+					scale: config.plexReencoding.scale,
+					debug: config.plexReencoding.debug === true
+				};
+
+				log("** Spawning Plex reencoding process **")
+				setImmediate(() => {
+					processPlexMedia(plexConfig).catch(err => log('Plex reencoding failed: ' + err.message));
+				});
+			} else {
+				log('Plex reencoding skipped because ratingKey is missing from payload.');
+			}
+		}
+
 		if (!playAction && !config.alwaysPostSlack) return;
 
 		if (Metadata.type == 'track') return;
 
-		if (Metadata.type == 'episode') {	
-			playAction = 'Just watched a tv episode using '	
+		if (Metadata.type == 'episode') {
+			playAction = 'Just watched a tv episode using '
 			programmeTitle = {
 				'title': 'Series',
 				'value': Metadata.grandparentTitle,
 				'short': false
 			};
-			programmeSeason = {		
+			programmeSeason = {
 				'title': 'Season',
 				'value': Metadata.parentIndex,
 				'short': false
 			};
-			programmeEpisode = {		
+			programmeEpisode = {
 				'title': 'Episode',
 				'value': Metadata.index + ' - ' + Metadata.title,
 				'short': false
@@ -103,8 +128,8 @@ const server = http.createServer((req, res) => {
 			programmeFallback = userName + ' watched ' + Metadata.grandparentTitle + ' season: ' + Metadata.parentIndex + ' episode: ' + Metadata.index;
 		}
 
-		if (Metadata.type == 'movie') {	
-			playAction = 'Just watched a movie using '	
+		if (Metadata.type == 'movie') {
+			playAction = 'Just watched a movie using '
 			programmeTitle = {
 				'title': 'Movie',
 				'value': Metadata.title,
@@ -113,13 +138,13 @@ const server = http.createServer((req, res) => {
 			programmeFallback = userName + ' watched ' + Metadata.title;
 		}
 
-		programmeSummary = {		
+		programmeSummary = {
 			'title': 'Summary',
 			'value': Metadata.summary,
 			'short': false
 		};
 
-		imdbTitle = programmeTitle.value.substr(0,1) + '/' + programmeTitle.value.replace(" ","_")
+		imdbTitle = programmeTitle.value.substr(0, 1) + '/' + programmeTitle.value.replace(" ", "_")
 
 		imdbTitle = imdbTitle.toLowerCase();
 
@@ -127,48 +152,48 @@ const server = http.createServer((req, res) => {
 			httprequest(config.imdbAPI + imdbTitle + '.json', function (error, response, body) {
 				if (!error && response.statusCode == 200) {
 					var json;
-					var imdbData = body;					
+					var imdbData = body;
 					var startPos = imdbData.indexOf('({');
 					var endPos = imdbData.indexOf('})');
-					var jsonString = imdbData.substring(startPos+1, endPos+1);
-					json = JSON.parse(jsonString);	
+					var jsonString = imdbData.substring(startPos + 1, endPos + 1);
+					json = JSON.parse(jsonString);
 					if (config.debug) {
 						log("---------------------- IMDB JSON Data -----------------------")
 						log(jsonString);
 
-					}			
-					for(var programme in json.d) {
+					}
+					for (var programme in json.d) {
 						if (config.debug) {
 							log(json.d[programme].id);
 							log(json.d[programme].i[0]);
 							log(json.d[programme].l);
 							log(programmeTitle.value);
 							log(json.d[programme].i)
-						}	
-						if ( json.d[programme].l === programmeTitle.value) {
+						}
+						if (json.d[programme].l === programmeTitle.value) {
 							callback(null, json.d[programme].id, json.d[programme].i[0]);
 							return
 						}
-					} 
+					}
 					callback(null);
 				} else {
 					callback(error);
 				}
 			})
 		}
-  
+
 		getIMDBData(function (err, imdbID, image) {
 
 			if (config.debug) {
 				log("Imdb ID - " + imdbID);
 				log("Image to send to slack - " + image);
-			}	
+			}
 
-			if (imdbID) {				
+			if (imdbID) {
 				footerIcon = config.slackFooterIcon;
 				footerText = config.imdbURL + imdbID;
 			}
-			
+
 			if (config.sendSlackMessage) {
 				slack.send({
 					attachments: [
@@ -180,14 +205,14 @@ const server = http.createServer((req, res) => {
 							'author_icon': Account.thumb,
 							'text': playAction + Player.title + ' plex client',
 							'thumb_url': image,
-							'fields':	[ 
-								programmeTitle, 
+							'fields': [
+								programmeTitle,
 								programmeSeason,
 								programmeEpisode,
 								programmeSummary
 							],
 							'footer_icon': footerIcon,
-							'footer': footerText,	
+							'footer': footerText,
 							'unfurl_links': true,
 						}
 					]
@@ -197,9 +222,9 @@ const server = http.createServer((req, res) => {
 					log(slackErr)
 				})
 			}
-	
+
 		});
 	});
 });
 
-server.listen(config.serverPort, () => log("Running Webhook Server"));
+server.listen(config.serverPort, () => log("Running Webhook Server on " + config.serverPort));
